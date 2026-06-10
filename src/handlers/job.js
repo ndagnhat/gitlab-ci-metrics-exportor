@@ -18,15 +18,21 @@ function runnerLabel(runner) {
 /**
  * Handles a GitLab `build` (job) webhook event and updates the relevant metrics.
  *
+ * `context.namespace` and `context.service` come from custom HTTP headers
+ * configured on the GitLab webhook, identifying which team/service owns the
+ * project that triggered the job.
+ *
  * @see https://docs.gitlab.com/ee/user/project/integrations/webhook_events.html#job-events
  */
-export function handleJobEvent(payload, metrics) {
+export function handleJobEvent(payload, metrics, context = {}) {
   const labels = {
     project: payload?.project?.path_with_namespace ?? payload?.project_name ?? 'unknown',
     ref: payload?.ref ?? 'unknown',
     stage: payload?.build_stage ?? 'unknown',
     name: payload?.build_name ?? 'unknown',
     runner: runnerLabel(payload?.runner),
+    namespace: context.namespace || 'unknown',
+    service: context.service || 'unknown',
   };
   const status = payload?.build_status ?? 'unknown';
 

@@ -75,10 +75,14 @@ test('job event exposes the expected metrics', async () => {
       runner: { id: 7, description: 'shared-runner' },
     },
     metrics,
+    { namespace: 'platform', service: 'checkout' },
   );
 
   const text = await metrics.registry.metrics();
-  assert.match(text, /gitlab_ci_job_id\{[^}]*name="unit-tests"[^}]*\} 999/);
+  assert.match(
+    text,
+    /gitlab_ci_job_id\{[^}]*name="unit-tests"[^}]*namespace="platform",service="checkout"\} 999/,
+  );
   assert.match(text, /gitlab_ci_job_status\{[^}]*runner="shared-runner"[^}]*status="failed"\} 1/);
   assert.match(text, /gitlab_ci_job_duration_seconds\{[^}]*\} 12.5/);
   assert.match(text, /gitlab_ci_job_run_count\{[^}]*status="failed"\} 1/);
@@ -129,6 +133,28 @@ test('pipeline namespace/service labels come from webhook context, defaulting to
   handlePipelineEvent(event, metrics2, { namespace: 'platform', service: 'checkout' });
   text = await metrics2.registry.metrics();
   assert.match(text, /gitlab_ci_pipeline_id\{[^}]*namespace="platform",service="checkout"\} 1/);
+});
+
+test('job namespace/service labels come from webhook context, defaulting to unknown', async () => {
+  const metrics = createMetrics({ defaultMetricsEnabled: false });
+  const event = {
+    object_kind: 'build',
+    ref: 'main',
+    build_id: 1,
+    build_name: 'unit-tests',
+    build_stage: 'test',
+    build_status: 'running',
+    project: { path_with_namespace: 'group/app' },
+  };
+
+  handleJobEvent(event, metrics);
+  let text = await metrics.registry.metrics();
+  assert.match(text, /gitlab_ci_job_id\{[^}]*namespace="unknown",service="unknown"\} 1/);
+
+  const metrics2 = createMetrics({ defaultMetricsEnabled: false });
+  handleJobEvent(event, metrics2, { namespace: 'platform', service: 'checkout' });
+  text = await metrics2.registry.metrics();
+  assert.match(text, /gitlab_ci_job_id\{[^}]*namespace="platform",service="checkout"\} 1/);
 });
 
 test('handlers tolerate missing/partial fields', () => {
