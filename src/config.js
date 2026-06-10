@@ -15,6 +15,10 @@ export function loadConfig(env = process.env) {
     webhookSecret: env.GITLAB_WEBHOOK_SECRET ?? '',
     // Maximum accepted webhook body size.
     bodyLimit: env.BODY_LIMIT ?? '5mb',
+    // Custom HTTP headers configured on the GitLab webhook used to label
+    // pipeline metrics (e.g. "Namespace: platform", "Service: checkout").
+    namespaceHeader: env.NAMESPACE_HEADER ?? 'X-Namespace',
+    serviceHeader: env.SERVICE_HEADER ?? 'X-Service',
     logLevel: env.LOG_LEVEL ?? 'info',
     // Whether to expose default Node.js process metrics alongside the GitLab ones.
     defaultMetricsEnabled: (env.DEFAULT_METRICS ?? 'true') === 'true',

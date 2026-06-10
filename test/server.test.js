@@ -9,6 +9,8 @@ const baseConfig = {
   webhookPath: '/webhook',
   webhookSecret: 'topsecret',
   bodyLimit: '1mb',
+  namespaceHeader: 'X-Namespace',
+  serviceHeader: 'X-Service',
 };
 
 function startApp(overrides = {}) {
@@ -61,6 +63,32 @@ test('accepts a valid pipeline webhook and reflects it in /metrics', async () =>
     const text = await metricsRes.text();
     assert.match(text, /gitlab_ci_pipeline_id\{[^}]*\} 5/);
     assert.match(text, /gitlab_ci_webhook_events_total\{event="pipeline",result="processed"\} 1/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('reads namespace/service from custom webhook headers into pipeline metrics', async () => {
+  const app = await startApp();
+  try {
+    const res = await fetch(app.url('/webhook'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gitlab-Token': 'topsecret',
+        'X-Namespace': 'platform',
+        'X-Service': 'checkout',
+      },
+      body: JSON.stringify({
+        object_kind: 'pipeline',
+        object_attributes: { id: 7, ref: 'main', source: 'push', status: 'running' },
+        project: { path_with_namespace: 'group/app' },
+      }),
+    });
+    assert.equal(res.status, 202);
+
+    const text = await (await fetch(app.url('/metrics'))).text();
+    assert.match(text, /gitlab_ci_pipeline_id\{[^}]*namespace="platform",service="checkout"\} 7/);
   } finally {
     await app.close();
   }

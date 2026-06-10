@@ -23,15 +23,21 @@ function extractEnv(name) {
 /**
  * Handles a GitLab `pipeline` webhook event and updates the relevant metrics.
  *
+ * `context.namespace` and `context.service` come from custom HTTP headers
+ * configured on the GitLab webhook, identifying which team/service owns the
+ * project that triggered the pipeline.
+ *
  * @see https://docs.gitlab.com/ee/user/project/integrations/webhook_events.html#pipeline-events
  */
-export function handlePipelineEvent(payload, metrics) {
+export function handlePipelineEvent(payload, metrics, context = {}) {
   const attrs = payload?.object_attributes ?? {};
   const labels = {
     project: payload?.project?.path_with_namespace ?? 'unknown',
     ref: attrs.ref ?? 'unknown',
     source: attrs.source ?? 'unknown',
     env: extractEnv(attrs.name),
+    namespace: context.namespace || 'unknown',
+    service: context.service || 'unknown',
   };
   const status = attrs.status ?? 'unknown';
 
