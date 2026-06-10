@@ -47,6 +47,14 @@ docker build -t gitlab-ci-metrics-exporter .
 docker run -p 9252:9252 -e GITLAB_WEBHOOK_SECRET=mysecret gitlab-ci-metrics-exporter
 ```
 
+A prebuilt image is published to GitHub Container Registry on every push to
+`main` and on version tags (see `.github/workflows/docker-publish.yml`):
+
+```bash
+docker run -p 9252:9252 -e GITLAB_WEBHOOK_SECRET=mysecret \
+  ghcr.io/<owner>/<repo>:latest
+```
+
 Or with the bundled Prometheus:
 
 ```bash
