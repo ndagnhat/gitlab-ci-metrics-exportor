@@ -1,0 +1,21 @@
+services:
+  exporter:
+    build: .
+    image: gitlab-ci-metrics-exporter:latest
+    ports:
+      - "9252:9252"
+    environment:
+      GITLAB_WEBHOOK_SECRET: ${GITLAB_WEBHOOK_SECRET:-change-me}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    restart: unless-stopped
+
+  # Optional: a local Prometheus pre-configured to scrape the exporter.
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./examples/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - exporter
+    restart: unless-stopped
