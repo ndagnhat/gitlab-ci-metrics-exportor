@@ -35,6 +35,8 @@ Send it a sample event:
 curl -X POST http://localhost:9252/webhook \
   -H "Content-Type: application/json" \
   -H "X-Gitlab-Token: mysecret" \
+  -H "X-Namespace: platform" \
+  -H "X-Service: checkout" \
   --data @examples/pipeline-event.json
 
 curl -s http://localhost:9252/metrics | grep gitlab_ci
@@ -73,6 +75,8 @@ All configuration is via environment variables (see `.env.example`):
 | `WEBHOOK_PATH`          | `/webhook`  | GitLab webhook receiver path                             |
 | `GITLAB_WEBHOOK_SECRET` | _(empty)_   | Expected `X-Gitlab-Token`. Empty disables token checks   |
 | `BODY_LIMIT`            | `5mb`       | Max webhook body size                                    |
+| `NAMESPACE_HEADER`      | `X-Namespace` | HTTP header read for the `namespace` pipeline label    |
+| `SERVICE_HEADER`        | `X-Service` | HTTP header read for the `service` pipeline label        |
 | `LOG_LEVEL`             | `info`      | `error` \| `warn` \| `info` \| `debug`                   |
 | `DEFAULT_METRICS`       | `true`      | Also expose default Node.js process metrics              |
 
@@ -80,11 +84,14 @@ All configuration is via environment variables (see `.env.example`):
 
 ### Pipeline metrics
 
-Labels: `project`, `ref`, `source`, `env` (`status` added where noted).
+Labels: `project`, `ref`, `source`, `env`, `namespace`, `service` (`status` added where noted).
 
-`env` is derived from the pipeline's `object_attributes.name` (set via the
-`workflow:name` keyword), e.g. `"Prod pipeline"` → `env="prod"`. Falls back to
-`"unknown"` when no name is set.
+- `env` is derived from the pipeline's `object_attributes.name` (set via the
+  `workflow:name` keyword), e.g. `"Prod pipeline"` → `env="prod"`. Falls back
+  to `"unknown"` when no name is set.
+- `namespace` and `service` come from the `X-Namespace` / `X-Service` custom
+  HTTP headers (configurable via `NAMESPACE_HEADER` / `SERVICE_HEADER`) sent
+  by the GitLab webhook. Falls back to `"unknown"` when not present.
 
 | Metric                                       | Type    | Description                                          |
 | -------------------------------------------- | ------- | ---------------------------------------------------- |
@@ -120,7 +127,12 @@ Labels: `project`, `ref`, `stage`, `name`, `runner` (`status` added where noted)
 2. **URL**: `https://<your-exporter-host>/webhook`
 3. **Secret token**: the same value as `GITLAB_WEBHOOK_SECRET`.
 4. Enable **Pipeline events** and **Job events**.
-5. Save, then use **Test** to send a sample event.
+5. (Optional) Under **Custom headers**, add headers named `X-Namespace` and
+   `X-Service` (or whatever you set `NAMESPACE_HEADER` / `SERVICE_HEADER` to)
+   with values identifying the owning team/service, e.g. `platform` /
+   `checkout`. These populate the `namespace` and `service` labels on
+   pipeline metrics.
+6. Save, then use **Test** to send a sample event.
 
 ## Example PromQL
 

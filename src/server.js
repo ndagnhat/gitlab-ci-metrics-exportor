@@ -52,7 +52,11 @@ export function createApp({ config, metrics, logger }) {
     try {
       switch (kind) {
         case 'pipeline': {
-          const info = handlePipelineEvent(req.body, metrics);
+          const context = {
+            namespace: req.get(config.namespaceHeader),
+            service: req.get(config.serviceHeader),
+          };
+          const info = handlePipelineEvent(req.body, metrics, context);
           metrics.webhookEvents.inc({ event: kind, result: 'processed' });
           logger.info('processed pipeline event', info);
           break;

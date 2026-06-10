@@ -23,16 +23,17 @@ test('pipeline event exposes the expected metrics', async () => {
       project: { path_with_namespace: 'group/app' },
     },
     metrics,
+    { namespace: 'platform', service: 'checkout' },
   );
 
   const text = await metrics.registry.metrics();
   assert.match(
     text,
-    /gitlab_ci_pipeline_id\{project="group\/app",ref="main",source="push",env="prod"\} 123/,
+    /gitlab_ci_pipeline_id\{project="group\/app",ref="main",source="push",env="prod",namespace="platform",service="checkout"\} 123/,
   );
   assert.match(
     text,
-    /gitlab_ci_pipeline_status\{project="group\/app",ref="main",source="push",env="prod",status="success"\} 1/,
+    /gitlab_ci_pipeline_status\{project="group\/app",ref="main",source="push",env="prod",namespace="platform",service="checkout",status="success"\} 1/,
   );
   assert.match(text, /gitlab_ci_pipeline_duration_seconds\{[^}]*\} 42/);
   assert.match(text, /gitlab_ci_pipeline_queued_duration_seconds\{[^}]*\} 3/);
@@ -110,6 +111,24 @@ test('pipeline env label is derived from object_attributes.name', async () => {
       `expected env="${expectedEnv}" for name=${JSON.stringify(name)}`,
     );
   }
+});
+
+test('pipeline namespace/service labels come from webhook context, defaulting to unknown', async () => {
+  const metrics = createMetrics({ defaultMetricsEnabled: false });
+  const event = {
+    object_kind: 'pipeline',
+    object_attributes: { id: 1, ref: 'main', source: 'push', status: 'running' },
+    project: { path_with_namespace: 'group/app' },
+  };
+
+  handlePipelineEvent(event, metrics);
+  let text = await metrics.registry.metrics();
+  assert.match(text, /gitlab_ci_pipeline_id\{[^}]*namespace="unknown",service="unknown"\} 1/);
+
+  const metrics2 = createMetrics({ defaultMetricsEnabled: false });
+  handlePipelineEvent(event, metrics2, { namespace: 'platform', service: 'checkout' });
+  text = await metrics2.registry.metrics();
+  assert.match(text, /gitlab_ci_pipeline_id\{[^}]*namespace="platform",service="checkout"\} 1/);
 });
 
 test('handlers tolerate missing/partial fields', () => {
