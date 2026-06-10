@@ -31,7 +31,7 @@ export const JOB_STATUSES = [
 export const FINISHED_STATUSES = new Set(['success', 'failed', 'canceled', 'skipped']);
 
 const PIPELINE_LABELS = ['project', 'ref', 'source', 'env', 'namespace', 'service'];
-const JOB_LABELS = ['project', 'ref', 'stage', 'name', 'runner'];
+const JOB_LABELS = ['project', 'ref', 'stage', 'name', 'runner', 'namespace', 'service'];
 
 /**
  * Creates a fresh metrics registry plus all the GitLab CI metric collectors.

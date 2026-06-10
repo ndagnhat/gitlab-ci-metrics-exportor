@@ -104,7 +104,11 @@ Labels: `project`, `ref`, `source`, `env`, `namespace`, `service` (`status` adde
 
 ### Job (build) metrics
 
-Labels: `project`, `ref`, `stage`, `name`, `runner` (`status` added where noted).
+Labels: `project`, `ref`, `stage`, `name`, `runner`, `namespace`, `service`
+(`status` added where noted).
+
+`namespace` and `service` come from the same `X-Namespace` / `X-Service`
+custom webhook headers described above, defaulting to `"unknown"`.
 
 | Metric                                  | Type    | Description                                         |
 | --------------------------------------- | ------- | -------------------------------------------------- |

@@ -94,6 +94,36 @@ test('reads namespace/service from custom webhook headers into pipeline metrics'
   }
 });
 
+test('reads namespace/service from custom webhook headers into job metrics', async () => {
+  const app = await startApp();
+  try {
+    const res = await fetch(app.url('/webhook'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gitlab-Token': 'topsecret',
+        'X-Namespace': 'platform',
+        'X-Service': 'checkout',
+      },
+      body: JSON.stringify({
+        object_kind: 'build',
+        ref: 'main',
+        build_id: 8,
+        build_name: 'unit-tests',
+        build_stage: 'test',
+        build_status: 'running',
+        project: { path_with_namespace: 'group/app' },
+      }),
+    });
+    assert.equal(res.status, 202);
+
+    const text = await (await fetch(app.url('/metrics'))).text();
+    assert.match(text, /gitlab_ci_job_id\{[^}]*namespace="platform",service="checkout"\} 8/);
+  } finally {
+    await app.close();
+  }
+});
+
 test('ignores unsupported event kinds without failing', async () => {
   const app = await startApp();
   try {

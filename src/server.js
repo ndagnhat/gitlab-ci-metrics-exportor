@@ -48,21 +48,21 @@ export function createApp({ config, metrics, logger }) {
     }
 
     const kind = req.body?.object_kind ?? 'unknown';
+    const context = {
+      namespace: req.get(config.namespaceHeader),
+      service: req.get(config.serviceHeader),
+    };
 
     try {
       switch (kind) {
         case 'pipeline': {
-          const context = {
-            namespace: req.get(config.namespaceHeader),
-            service: req.get(config.serviceHeader),
-          };
           const info = handlePipelineEvent(req.body, metrics, context);
           metrics.webhookEvents.inc({ event: kind, result: 'processed' });
           logger.info('processed pipeline event', info);
           break;
         }
         case 'build': {
-          const info = handleJobEvent(req.body, metrics);
+          const info = handleJobEvent(req.body, metrics, context);
           metrics.webhookEvents.inc({ event: kind, result: 'processed' });
           logger.info('processed job event', info);
           break;
