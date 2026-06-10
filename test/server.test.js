@@ -1,29 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createMetrics } from '../src/metrics.js';
+import { createMetricsStore } from '../src/metrics-store.js';
 import { createLogger } from '../src/logger.js';
 import { createApp } from '../src/server.js';
 
 const baseConfig = {
   metricsPath: '/metrics',
-  webhookPath: '/webhook',
-  webhookSecret: 'topsecret',
+  authToken: 'topsecret',
   bodyLimit: '1mb',
-  namespaceHeader: 'X-Namespace',
-  serviceHeader: 'X-Service',
 };
 
 function startApp(overrides = {}) {
   const config = { ...baseConfig, ...overrides };
-  const metrics = createMetrics({ defaultMetricsEnabled: false });
+  const metricsStore = createMetricsStore({ defaultMetricsEnabled: false });
   const logger = createLogger('error');
-  const app = createApp({ config, metrics, logger });
+  const app = createApp({ config, metricsStore, logger });
   return new Promise((resolve) => {
     const server = app.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
       resolve({
         server,
-        metrics,
+        metricsStore,
         url: (path) => `http://127.0.0.1:${port}${path}`,
         close: () => new Promise((r) => server.close(r)),
       });
@@ -31,13 +28,13 @@ function startApp(overrides = {}) {
   });
 }
 
-test('rejects webhook with wrong token', async () => {
+test('rejects push with missing/invalid auth token', async () => {
   const app = await startApp();
   try {
-    const res = await fetch(app.url('/webhook'), {
+    const res = await fetch(app.url('/metrics'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Gitlab-Token': 'wrong' },
-      body: JSON.stringify({ object_kind: 'pipeline' }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'm', type: 'gauge', value: 1 }),
     });
     assert.equal(res.status, 401);
   } finally {
@@ -45,97 +42,79 @@ test('rejects webhook with wrong token', async () => {
   }
 });
 
-test('accepts a valid pipeline webhook and reflects it in /metrics', async () => {
+test('pushes a single gauge metric and reflects it in /metrics', async () => {
   const app = await startApp();
   try {
-    const res = await fetch(app.url('/webhook'), {
+    const res = await fetch(app.url('/metrics'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Gitlab-Token': 'topsecret' },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer topsecret' },
       body: JSON.stringify({
-        object_kind: 'pipeline',
-        object_attributes: { id: 5, ref: 'main', source: 'push', status: 'running' },
-        project: { path_with_namespace: 'group/app' },
+        name: 'queue_size',
+        type: 'gauge',
+        help: 'Items in queue',
+        labels: { queue: 'emails' },
+        value: 5,
       }),
     });
     assert.equal(res.status, 202);
+    assert.deepEqual(await res.json(), { status: 'accepted', count: 1 });
 
-    const metricsRes = await fetch(app.url('/metrics'));
-    const text = await metricsRes.text();
-    assert.match(text, /gitlab_ci_pipeline_id\{[^}]*\} 5/);
-    assert.match(text, /gitlab_ci_webhook_events_total\{event="pipeline",result="processed"\} 1/);
+    const text = await (await fetch(app.url('/metrics'))).text();
+    assert.match(text, /queue_size\{queue="emails"\} 5/);
   } finally {
     await app.close();
   }
 });
 
-test('reads namespace/service from custom webhook headers into pipeline metrics', async () => {
+test('pushes a batch of metrics via { metrics: [...] }', async () => {
   const app = await startApp();
   try {
-    const res = await fetch(app.url('/webhook'), {
+    const res = await fetch(app.url('/metrics'), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Gitlab-Token': 'topsecret',
-        'X-Namespace': 'platform',
-        'X-Service': 'checkout',
-      },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer topsecret' },
       body: JSON.stringify({
-        object_kind: 'pipeline',
-        object_attributes: { id: 7, ref: 'main', source: 'push', status: 'running' },
-        project: { path_with_namespace: 'group/app' },
+        metrics: [
+          { name: 'jobs_total', type: 'counter', labels: { status: 'success' }, value: 3 },
+          { name: 'jobs_total', type: 'counter', labels: { status: 'failed' }, value: 1 },
+        ],
       }),
     });
     assert.equal(res.status, 202);
+    assert.deepEqual(await res.json(), { status: 'accepted', count: 2 });
 
     const text = await (await fetch(app.url('/metrics'))).text();
-    assert.match(text, /gitlab_ci_pipeline_id\{[^}]*namespace="platform",service="checkout"\} 7/);
+    assert.match(text, /jobs_total\{status="success"\} 3/);
+    assert.match(text, /jobs_total\{status="failed"\} 1/);
   } finally {
     await app.close();
   }
 });
 
-test('reads namespace/service from custom webhook headers into job metrics', async () => {
+test('rejects an invalid push with a descriptive error', async () => {
   const app = await startApp();
   try {
-    const res = await fetch(app.url('/webhook'), {
+    const res = await fetch(app.url('/metrics'), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Gitlab-Token': 'topsecret',
-        'X-Namespace': 'platform',
-        'X-Service': 'checkout',
-      },
-      body: JSON.stringify({
-        object_kind: 'build',
-        ref: 'main',
-        build_id: 8,
-        build_name: 'unit-tests',
-        build_stage: 'test',
-        build_status: 'running',
-        project: { path_with_namespace: 'group/app' },
-      }),
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer topsecret' },
+      body: JSON.stringify({ name: 'bad metric name', type: 'gauge', value: 1 }),
     });
-    assert.equal(res.status, 202);
-
-    const text = await (await fetch(app.url('/metrics'))).text();
-    assert.match(text, /gitlab_ci_job_id\{[^}]*namespace="platform",service="checkout"\} 8/);
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.match(body.error, /invalid metric name/);
   } finally {
     await app.close();
   }
 });
 
-test('ignores unsupported event kinds without failing', async () => {
-  const app = await startApp();
+test('works without auth when authToken is empty', async () => {
+  const app = await startApp({ authToken: '' });
   try {
-    const res = await fetch(app.url('/webhook'), {
+    const res = await fetch(app.url('/metrics'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Gitlab-Token': 'topsecret' },
-      body: JSON.stringify({ object_kind: 'push' }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'm', type: 'gauge', value: 1 }),
     });
     assert.equal(res.status, 202);
-
-    const text = await (await fetch(app.url('/metrics'))).text();
-    assert.match(text, /gitlab_ci_webhook_events_total\{event="push",result="ignored"\} 1/);
   } finally {
     await app.close();
   }

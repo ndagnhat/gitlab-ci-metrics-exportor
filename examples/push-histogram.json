@@ -1,0 +1,11 @@
+{
+  "name": "gitlab_ci_job_duration_seconds",
+  "type": "histogram",
+  "help": "Duration in seconds of CI jobs",
+  "labels": {
+    "project": "group/app",
+    "stage": "test"
+  },
+  "value": 12.5,
+  "buckets": [1, 5, 10, 30, 60, 120, 300]
+}

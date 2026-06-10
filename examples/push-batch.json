@@ -1,0 +1,24 @@
+{
+  "metrics": [
+    {
+      "name": "gitlab_ci_pipeline_status",
+      "type": "gauge",
+      "help": "Current pipeline status (1 = active)",
+      "labels": { "project": "group/app", "ref": "main", "status": "success" },
+      "value": 1
+    },
+    {
+      "name": "gitlab_ci_pipeline_run_count",
+      "type": "counter",
+      "labels": { "project": "group/app", "ref": "main", "status": "success" },
+      "value": 1
+    },
+    {
+      "name": "gitlab_ci_job_duration_seconds",
+      "type": "histogram",
+      "labels": { "project": "group/app", "stage": "test" },
+      "value": 8.2,
+      "buckets": [1, 5, 10, 30, 60, 120, 300]
+    }
+  ]
+}

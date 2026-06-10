@@ -1,20 +1,19 @@
 import { loadConfig } from './config.js';
 import { createLogger } from './logger.js';
-import { createMetrics } from './metrics.js';
+import { createMetricsStore } from './metrics-store.js';
 import { createApp } from './server.js';
 
 const config = loadConfig();
 const logger = createLogger(config.logLevel);
-const metrics = createMetrics({ defaultMetricsEnabled: config.defaultMetricsEnabled });
-const app = createApp({ config, metrics, logger });
+const metricsStore = createMetricsStore({ defaultMetricsEnabled: config.defaultMetricsEnabled });
+const app = createApp({ config, metricsStore, logger });
 
 const server = app.listen(config.port, config.host, () => {
-  logger.info('gitlab-ci-metrics-exporter started', {
+  logger.info('metrics-push-exporter started', {
     host: config.host,
     port: config.port,
     metricsPath: config.metricsPath,
-    webhookPath: config.webhookPath,
-    tokenAuth: Boolean(config.webhookSecret),
+    tokenAuth: Boolean(config.authToken),
   });
 });
 

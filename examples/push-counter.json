@@ -1,0 +1,11 @@
+{
+  "name": "gitlab_ci_pipeline_run_count",
+  "type": "counter",
+  "help": "Total number of finished pipeline runs",
+  "labels": {
+    "project": "group/app",
+    "ref": "main",
+    "status": "success"
+  },
+  "value": 1
+}

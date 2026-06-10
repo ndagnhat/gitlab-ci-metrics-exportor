@@ -1,7 +1,7 @@
 {
   "name": "gitlab-ci-metrics-exporter",
-  "version": "1.0.0",
-  "description": "Prometheus exporter that turns GitLab CI webhook payloads (pipeline & job events) into metrics, without polling the GitLab API.",
+  "version": "2.0.0",
+  "description": "Generic Prometheus push exporter: clients push gauge/counter/histogram metrics over HTTP and the exporter exposes them at /metrics.",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
@@ -10,12 +10,14 @@
     "test": "node --test"
   },
   "keywords": [
-    "gitlab",
-    "gitlab-ci",
     "prometheus",
     "exporter",
     "metrics",
-    "webhook"
+    "push",
+    "pushgateway",
+    "gauge",
+    "counter",
+    "histogram"
   ],
   "license": "MIT",
   "engines": {
