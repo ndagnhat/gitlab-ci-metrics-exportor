@@ -10,6 +10,17 @@ function toNumber(value) {
 }
 
 /**
+ * Extracts the environment from a pipeline name such as "Prod pipeline" or
+ * "Staging Pipeline" by stripping the trailing "pipeline" word, e.g. "prod".
+ * Falls back to "unknown" when the name is missing or doesn't match.
+ */
+function extractEnv(name) {
+  if (!name) return 'unknown';
+  const match = String(name).trim().match(/^(.*?)\s+pipeline$/i);
+  return (match ? match[1] : name).trim().toLowerCase() || 'unknown';
+}
+
+/**
  * Handles a GitLab `pipeline` webhook event and updates the relevant metrics.
  *
  * @see https://docs.gitlab.com/ee/user/project/integrations/webhook_events.html#pipeline-events
@@ -20,6 +31,7 @@ export function handlePipelineEvent(payload, metrics) {
     project: payload?.project?.path_with_namespace ?? 'unknown',
     ref: attrs.ref ?? 'unknown',
     source: attrs.source ?? 'unknown',
+    env: extractEnv(attrs.name),
   };
   const status = attrs.status ?? 'unknown';
 
