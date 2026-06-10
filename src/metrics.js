@@ -30,7 +30,7 @@ export const JOB_STATUSES = [
 // Statuses considered terminal — used to bump run counters and timestamps.
 export const FINISHED_STATUSES = new Set(['success', 'failed', 'canceled', 'skipped']);
 
-const PIPELINE_LABELS = ['project', 'ref', 'source'];
+const PIPELINE_LABELS = ['project', 'ref', 'source', 'env'];
 const JOB_LABELS = ['project', 'ref', 'stage', 'name', 'runner'];
 
 /**

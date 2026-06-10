@@ -12,6 +12,7 @@ test('pipeline event exposes the expected metrics', async () => {
       object_kind: 'pipeline',
       object_attributes: {
         id: 123,
+        name: 'Prod pipeline',
         ref: 'main',
         source: 'push',
         status: 'success',
@@ -25,10 +26,13 @@ test('pipeline event exposes the expected metrics', async () => {
   );
 
   const text = await metrics.registry.metrics();
-  assert.match(text, /gitlab_ci_pipeline_id\{project="group\/app",ref="main",source="push"\} 123/);
   assert.match(
     text,
-    /gitlab_ci_pipeline_status\{project="group\/app",ref="main",source="push",status="success"\} 1/,
+    /gitlab_ci_pipeline_id\{project="group\/app",ref="main",source="push",env="prod"\} 123/,
+  );
+  assert.match(
+    text,
+    /gitlab_ci_pipeline_status\{project="group\/app",ref="main",source="push",env="prod",status="success"\} 1/,
   );
   assert.match(text, /gitlab_ci_pipeline_duration_seconds\{[^}]*\} 42/);
   assert.match(text, /gitlab_ci_pipeline_queued_duration_seconds\{[^}]*\} 3/);
@@ -77,6 +81,35 @@ test('job event exposes the expected metrics', async () => {
   assert.match(text, /gitlab_ci_job_status\{[^}]*runner="shared-runner"[^}]*status="failed"\} 1/);
   assert.match(text, /gitlab_ci_job_duration_seconds\{[^}]*\} 12.5/);
   assert.match(text, /gitlab_ci_job_run_count\{[^}]*status="failed"\} 1/);
+});
+
+test('pipeline env label is derived from object_attributes.name', async () => {
+  const cases = [
+    ['Prod pipeline', 'prod'],
+    ['Staging Pipeline', 'staging'],
+    ['Pre-Prod   pipeline', 'pre-prod'],
+    [undefined, 'unknown'],
+    ['', 'unknown'],
+    ['custom-name', 'custom-name'],
+  ];
+
+  for (const [name, expectedEnv] of cases) {
+    const metrics = createMetrics({ defaultMetricsEnabled: false });
+    handlePipelineEvent(
+      {
+        object_kind: 'pipeline',
+        object_attributes: { id: 1, name, ref: 'main', source: 'push', status: 'running' },
+        project: { path_with_namespace: 'group/app' },
+      },
+      metrics,
+    );
+    const text = await metrics.registry.metrics();
+    assert.match(
+      text,
+      new RegExp(`gitlab_ci_pipeline_id\\{[^}]*env="${expectedEnv}"[^}]*\\} 1`),
+      `expected env="${expectedEnv}" for name=${JSON.stringify(name)}`,
+    );
+  }
 });
 
 test('handlers tolerate missing/partial fields', () => {

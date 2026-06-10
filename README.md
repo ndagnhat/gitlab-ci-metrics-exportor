@@ -80,7 +80,11 @@ All configuration is via environment variables (see `.env.example`):
 
 ### Pipeline metrics
 
-Labels: `project`, `ref`, `source` (`status` added where noted).
+Labels: `project`, `ref`, `source`, `env` (`status` added where noted).
+
+`env` is derived from the pipeline's `object_attributes.name` (set via the
+`workflow:name` keyword), e.g. `"Prod pipeline"` → `env="prod"`. Falls back to
+`"unknown"` when no name is set.
 
 | Metric                                       | Type    | Description                                          |
 | -------------------------------------------- | ------- | ---------------------------------------------------- |
