@@ -14,7 +14,9 @@ EXPOSE 9252
 
 # Writable directory for the optional metrics persistence snapshot
 # (set PERSISTENCE_PATH=/data/state.json and mount a volume here).
-RUN mkdir -p /data && chown node:node /data
+# Group-owned by root with group write so it also works on platforms
+# (e.g. OpenShift) that run the container as an arbitrary UID in group 0.
+RUN mkdir -p /data && chown node:0 /data && chmod g+rwX /data
 VOLUME /data
 
 USER node

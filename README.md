@@ -64,6 +64,14 @@ Or with the bundled Prometheus:
 PUSH_AUTH_TOKEN=mysecret docker compose up
 ```
 
+### Kubernetes / OpenShift
+
+A Helm chart is provided in [`charts/gitlab-ci-metrics-exporter`](charts/gitlab-ci-metrics-exporter)
+for deploying to Kubernetes or OpenShift, including an optional OpenShift
+`Route`, PVC-backed persistence, and a Prometheus Operator `ServiceMonitor`.
+See the chart's [README](charts/gitlab-ci-metrics-exporter/README.md) for
+usage.
+
 ## Configuration
 
 All configuration is via environment variables (see `.env.example`):
@@ -212,6 +220,7 @@ src/
   server.js           # Express app: /metrics (GET+POST), /health
 test/                 # unit + integration tests
 examples/             # sample push payloads & prometheus config
+charts/               # Helm chart for Kubernetes/OpenShift deployment
 ```
 
 ## Notes & limitations
