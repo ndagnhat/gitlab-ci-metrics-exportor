@@ -12,6 +12,11 @@ ENV NODE_ENV=production
 ENV PORT=9252
 EXPOSE 9252
 
+# Writable directory for the optional metrics persistence snapshot
+# (set PERSISTENCE_PATH=/data/state.json and mount a volume here).
+RUN mkdir -p /data && chown node:node /data
+VOLUME /data
+
 USER node
 
 HEALTHCHECK --interval=30s --timeout=3s \

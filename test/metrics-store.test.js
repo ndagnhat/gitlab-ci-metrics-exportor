@@ -77,6 +77,43 @@ test('rejects invalid metric and label names', () => {
   );
 });
 
+test('exportState/importState: round-trips gauge, counter and histogram values', async () => {
+  const store = createMetricsStore({ defaultMetricsEnabled: false });
+
+  store.push({ name: 'queue_size', type: 'gauge', help: 'Items in queue', labels: { queue: 'emails' }, value: 7 });
+  store.push({ name: 'jobs_processed_total', type: 'counter', labels: { status: 'success' }, value: 5 });
+  store.push({
+    name: 'request_duration_seconds',
+    type: 'histogram',
+    labels: { route: '/api' },
+    value: 0.2,
+    buckets: [0.1, 0.5, 1],
+  });
+  store.push({ name: 'request_duration_seconds', labels: { route: '/api' }, value: 0.7 });
+
+  const snapshot = JSON.parse(JSON.stringify(store.exportState()));
+
+  const restored = createMetricsStore({ defaultMetricsEnabled: false });
+  restored.importState(snapshot);
+
+  const text = await restored.registry.metrics();
+  assert.match(text, /# HELP queue_size Items in queue/);
+  assert.match(text, /queue_size\{queue="emails"\} 7/);
+  assert.match(text, /jobs_processed_total\{status="success"\} 5/);
+  assert.match(text, /request_duration_seconds_bucket\{le="0.1",route="\/api"\} 0/);
+  assert.match(text, /request_duration_seconds_bucket\{le="0.5",route="\/api"\} 1/);
+  assert.match(text, /request_duration_seconds_bucket\{le="1",route="\/api"\} 2/);
+  assert.match(text, /request_duration_seconds_sum\{route="\/api"\} 0\.8999/);
+  assert.match(text, /request_duration_seconds_count\{route="\/api"\} 2/);
+
+  // Pushes after restore must continue accumulating onto the restored values.
+  restored.push({ name: 'jobs_processed_total', labels: { status: 'success' }, value: 1 });
+  const text2 = await restored.registry.metrics();
+  assert.match(text2, /jobs_processed_total\{status="success"\} 6/);
+  // No duplicate series for the same label set.
+  assert.equal((text2.match(/^jobs_processed_total\{/gm) || []).length, 1);
+});
+
 test('rejects unsupported types and methods', () => {
   const store = createMetricsStore({ defaultMetricsEnabled: false });
   assert.throws(() => store.push({ name: 'm', type: 'summary', value: 1 }), /unsupported type/);

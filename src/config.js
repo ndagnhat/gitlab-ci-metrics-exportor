@@ -16,5 +16,10 @@ export function loadConfig(env = process.env) {
     logLevel: env.LOG_LEVEL ?? 'info',
     // Whether to expose default Node.js process metrics alongside pushed metrics.
     defaultMetricsEnabled: (env.DEFAULT_METRICS ?? 'true') === 'true',
+    // File path used to persist/restore pushed metrics across restarts.
+    // Empty disables persistence (metrics are lost on restart).
+    persistencePath: env.PERSISTENCE_PATH ?? '',
+    // How often (ms) to write the metrics snapshot to PERSISTENCE_PATH.
+    persistenceIntervalMs: Number.parseInt(env.PERSISTENCE_INTERVAL_MS ?? '30000', 10),
   };
 }
