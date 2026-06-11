@@ -1,43 +1,44 @@
 # gitlab-ci-metrics-exporter
 
-A lightweight **Prometheus exporter** written in **Node.js**, inspired by
-[radiofrance/gitlab-ci-pipelines-exporter](https://github.com/radiofrance/gitlab-ci-pipelines-exporter).
+A lightweight, **generic Prometheus push exporter** written in **Node.js**.
 
-Instead of polling the GitLab API, it **receives GitLab webhook payloads**
-(pipeline and job events) and turns them into Prometheus metrics in real time.
-This avoids API rate limits and gives you metrics the moment a pipeline or job
-changes state.
+Clients (CI pipelines, scripts, GitLab webhook relays, anything that can make
+an HTTP request) **push metric samples as JSON**, and the exporter exposes
+them at `/metrics` for Prometheus to scrape — similar in spirit to the
+[Prometheus Pushgateway](https://github.com/prometheus/pushgateway), but with
+a simple JSON API and native support for **gauges, counters and histograms**.
+
+> **Note:** v1.x of this project parsed GitLab CI webhook payloads directly.
+> v2 is a generic push exporter — feed it whatever metrics you like (including
+> ones derived from GitLab webhooks upstream). See the `v1.0.0` tag for the
+> previous architecture.
 
 ## How it works
 
 ```
-GitLab ──(webhook: pipeline / job events)──▶ /webhook ──▶ in-memory metrics ──▶ /metrics ──▶ Prometheus
+your app/script ──(POST JSON metric)──▶ /metrics ──▶ in-memory registry ──▶ (GET) /metrics ──▶ Prometheus
 ```
 
-1. You configure a **webhook** on a GitLab project/group pointing at this
-   exporter's `/webhook` endpoint, with **Pipeline events** and **Job events**
-   enabled.
-2. The exporter validates the secret token, parses the payload, and updates its
-   metrics.
-3. Prometheus scrapes `/metrics`.
+1. Your application pushes one or more metric samples to `POST /metrics`.
+2. The exporter registers the metric (gauge/counter/histogram) on first use,
+   then applies the value (`set`/`inc`/`dec`/`observe`).
+3. Prometheus scrapes `GET /metrics` as usual.
 
 ## Quick start
 
 ```bash
 npm install
-GITLAB_WEBHOOK_SECRET=mysecret npm start
+PUSH_AUTH_TOKEN=mysecret npm start
 # exporter listening on :9252
 ```
 
-Send it a sample event:
+Push a gauge:
 
 ```bash
-curl -X POST http://localhost:9252/webhook \
+curl -X POST http://localhost:9252/metrics \
   -H "Content-Type: application/json" \
-  -H "X-Gitlab-Token: mysecret" \
-  -H "X-Namespace: platform" \
-  -H "X-Service: checkout" \
-  --data @examples/pipeline-event.json
+  -H "Authorization: Bearer mysecret" \
+  --data @examples/push-gauge.json
 
 curl -s http://localhost:9252/metrics | grep gitlab_ci
 ```
@@ -46,111 +47,126 @@ curl -s http://localhost:9252/metrics | grep gitlab_ci
 
 ```bash
 docker build -t gitlab-ci-metrics-exporter .
-docker run -p 9252:9252 -e GITLAB_WEBHOOK_SECRET=mysecret gitlab-ci-metrics-exporter
+docker run -p 9252:9252 -e PUSH_AUTH_TOKEN=mysecret gitlab-ci-metrics-exporter
 ```
 
 A prebuilt image is published to GitHub Container Registry on every push to
 `main` and on version tags (see `.github/workflows/docker-publish.yml`):
 
 ```bash
-docker run -p 9252:9252 -e GITLAB_WEBHOOK_SECRET=mysecret \
+docker run -p 9252:9252 -e PUSH_AUTH_TOKEN=mysecret \
   ghcr.io/<owner>/<repo>:latest
 ```
 
 Or with the bundled Prometheus:
 
 ```bash
-GITLAB_WEBHOOK_SECRET=mysecret docker compose up
+PUSH_AUTH_TOKEN=mysecret docker compose up
 ```
 
 ## Configuration
 
 All configuration is via environment variables (see `.env.example`):
 
-| Variable                | Default     | Description                                              |
-| ----------------------- | ----------- | -------------------------------------------------------- |
-| `HOST`                  | `0.0.0.0`   | Bind address                                             |
-| `PORT`                  | `9252`      | Bind port                                                |
-| `METRICS_PATH`          | `/metrics`  | Prometheus scrape path                                   |
-| `WEBHOOK_PATH`          | `/webhook`  | GitLab webhook receiver path                             |
-| `GITLAB_WEBHOOK_SECRET` | _(empty)_   | Expected `X-Gitlab-Token`. Empty disables token checks   |
-| `BODY_LIMIT`            | `5mb`       | Max webhook body size                                    |
-| `NAMESPACE_HEADER`      | `X-Namespace` | HTTP header read for the `namespace` pipeline label    |
-| `SERVICE_HEADER`        | `X-Service` | HTTP header read for the `service` pipeline label        |
-| `LOG_LEVEL`             | `info`      | `error` \| `warn` \| `info` \| `debug`                   |
-| `DEFAULT_METRICS`       | `true`      | Also expose default Node.js process metrics              |
+| Variable          | Default    | Description                                                  |
+| ----------------- | ---------- | ------------------------------------------------------------- |
+| `HOST`            | `0.0.0.0`  | Bind address                                                  |
+| `PORT`            | `9252`     | Bind port                                                     |
+| `METRICS_PATH`    | `/metrics` | Path used for both `GET` (scrape) and `POST` (push)           |
+| `PUSH_AUTH_TOKEN` | _(empty)_  | Required `Authorization: Bearer <token>` on pushes. Empty disables auth |
+| `BODY_LIMIT`      | `1mb`      | Max request body size                                         |
+| `LOG_LEVEL`       | `info`     | `error` \| `warn` \| `info` \| `debug`                        |
+| `DEFAULT_METRICS` | `true`     | Also expose default Node.js process metrics                   |
 
-## Exposed metrics
+## Pushing metrics
 
-### Pipeline metrics
+`POST /metrics` accepts:
 
-Labels: `project`, `ref`, `source`, `env`, `namespace`, `service` (`status` added where noted).
+- a single metric object,
+- a JSON array of metric objects, or
+- `{ "metrics": [ ... ] }`
 
-- `env` is derived from the pipeline's `object_attributes.name` (set via the
-  `workflow:name` keyword), e.g. `"Prod pipeline"` → `env="prod"`. Falls back
-  to `"unknown"` when no name is set.
-- `namespace` and `service` come from the `X-Namespace` / `X-Service` custom
-  HTTP headers (configurable via `NAMESPACE_HEADER` / `SERVICE_HEADER`) sent
-  by the GitLab webhook. Falls back to `"unknown"` when not present.
+### Metric object fields
 
-| Metric                                       | Type    | Description                                          |
-| -------------------------------------------- | ------- | ---------------------------------------------------- |
-| `gitlab_ci_pipeline_id`                      | gauge   | ID of the most recent pipeline                       |
-| `gitlab_ci_pipeline_status{status}`          | gauge   | `1` for the active status, series removed otherwise  |
-| `gitlab_ci_pipeline_duration_seconds`        | gauge   | Duration of the most recent pipeline                 |
-| `gitlab_ci_pipeline_queued_duration_seconds` | gauge   | Queued time of the most recent pipeline              |
-| `gitlab_ci_pipeline_timestamp`               | gauge   | Unix time the most recent pipeline finished          |
-| `gitlab_ci_pipeline_run_count{status}`       | counter | Finished pipeline runs, by final status              |
+| Field    | Required          | Description                                                                 |
+| -------- | ----------------- | ---------------------------------------------------------------------------- |
+| `name`   | yes                | Prometheus metric name (`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)                        |
+| `type`   | on first push only | `gauge` \| `counter` \| `histogram`. Must stay the same for a given `name`  |
+| `help`   | no                 | Description shown in the `# HELP` line (first push only)                    |
+| `labels` | no (default `{}`)  | Label name → value map. The set of label names is fixed after first push    |
+| `value`  | no (default `1`)   | Numeric value to apply                                                       |
+| `method` | no                 | How `value` is applied (see below)                                          |
+| `buckets`| no                 | Histogram bucket boundaries, e.g. `[0.1, 0.5, 1, 5]` (first push only)       |
 
-### Job (build) metrics
+### `method` by metric type
 
-Labels: `project`, `ref`, `stage`, `name`, `runner`, `namespace`, `service`
-(`status` added where noted).
+| Type        | Allowed `method`        | Default     | Effect                                |
+| ----------- | ------------------------ | ----------- | -------------------------------------- |
+| `gauge`     | `set`, `inc`, `dec`       | `set`       | Sets / increments / decrements         |
+| `counter`   | `inc`                     | `inc`       | Adds `value` (must be ≥ 0, cumulative) |
+| `histogram` | `observe`                 | `observe`   | Records an observation                 |
 
-`namespace` and `service` come from the same `X-Namespace` / `X-Service`
-custom webhook headers described above, defaulting to `"unknown"`.
+### Examples
 
-| Metric                                  | Type    | Description                                         |
-| --------------------------------------- | ------- | -------------------------------------------------- |
-| `gitlab_ci_job_id`                      | gauge   | ID of the most recent job                          |
-| `gitlab_ci_job_status{status}`          | gauge   | `1` for the active status, series removed otherwise|
-| `gitlab_ci_job_duration_seconds`        | gauge   | Duration of the most recent job                    |
-| `gitlab_ci_job_queued_duration_seconds` | gauge   | Queued time of the most recent job                 |
-| `gitlab_ci_job_timestamp`               | gauge   | Unix time the most recent job finished             |
-| `gitlab_ci_job_run_count{status}`       | counter | Finished job runs, by final status                 |
+Gauge — set `gitlab_ci_pipeline_duration_seconds` to `42`:
 
-### Exporter metrics
-
-| Metric                                          | Type    | Description                                                         |
-| ----------------------------------------------- | ------- | ------------------------------------------------------------------ |
-| `gitlab_ci_webhook_events_total{event,result}`  | counter | Webhook events received (`processed`/`ignored`/`rejected`/`error`) |
-
-## Setting up the GitLab webhook
-
-1. Go to **Project (or Group) → Settings → Webhooks**.
-2. **URL**: `https://<your-exporter-host>/webhook`
-3. **Secret token**: the same value as `GITLAB_WEBHOOK_SECRET`.
-4. Enable **Pipeline events** and **Job events**.
-5. (Optional) Under **Custom headers**, add headers named `X-Namespace` and
-   `X-Service` (or whatever you set `NAMESPACE_HEADER` / `SERVICE_HEADER` to)
-   with values identifying the owning team/service, e.g. `platform` /
-   `checkout`. These populate the `namespace` and `service` labels on
-   pipeline metrics.
-6. Save, then use **Test** to send a sample event.
-
-## Example PromQL
-
-```promql
-# Pipeline success ratio over the last day
-sum(rate(gitlab_ci_pipeline_run_count{status="success"}[1d]))
-  / sum(rate(gitlab_ci_pipeline_run_count[1d]))
-
-# Currently running pipelines
-gitlab_ci_pipeline_status{status="running"}
-
-# Latest job durations, top 10
-topk(10, gitlab_ci_job_duration_seconds)
+```json
+{
+  "name": "gitlab_ci_pipeline_duration_seconds",
+  "type": "gauge",
+  "help": "Duration in seconds of the most recent pipeline",
+  "labels": { "project": "group/app", "ref": "main", "env": "prod" },
+  "value": 42
+}
 ```
+
+Counter — increment `gitlab_ci_pipeline_run_count` by 1:
+
+```json
+{
+  "name": "gitlab_ci_pipeline_run_count",
+  "type": "counter",
+  "labels": { "project": "group/app", "ref": "main", "status": "success" },
+  "value": 1
+}
+```
+
+Histogram — observe a job duration, defining buckets on first push:
+
+```json
+{
+  "name": "gitlab_ci_job_duration_seconds",
+  "type": "histogram",
+  "labels": { "project": "group/app", "stage": "test" },
+  "value": 12.5,
+  "buckets": [1, 5, 10, 30, 60, 120, 300]
+}
+```
+
+Batch push (see `examples/push-batch.json`):
+
+```bash
+curl -X POST http://localhost:9252/metrics \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer mysecret" \
+  --data @examples/push-batch.json
+```
+
+### Responses
+
+- `202 Accepted` – `{ "status": "accepted", "count": <n> }`
+- `400 Bad Request` – `{ "error": "...", "index": <n>, "applied": <n> }` —
+  validation failed for item `index`; the first `applied` items in the batch
+  were already applied.
+- `401 Unauthorized` – missing/invalid bearer token.
+
+### Validation rules
+
+- A metric `name` and its `type` and label set are fixed on first push; later
+  pushes with a different `type` or different label keys for the same `name`
+  are rejected.
+- Counters can only be incremented (`value >= 0`); use a `gauge` if you need
+  values that can go down.
 
 ## Development
 
@@ -164,25 +180,23 @@ npm run dev  # watch mode
 
 ```
 src/
-  index.js            # entry point: wires config + server + metrics
+  index.js            # entry point: wires config + server + metrics store
   config.js           # env-based configuration
   logger.js           # JSON line logger
-  metrics.js          # prom-client registry & collectors
-  server.js           # Express app: /webhook, /metrics, /health
-  handlers/
-    pipeline.js       # GitLab "pipeline" event → metrics
-    job.js            # GitLab "build" (job) event → metrics
+  metrics-store.js     # dynamic prom-client registry (gauge/counter/histogram)
+  server.js           # Express app: /metrics (GET+POST), /health
 test/                 # unit + integration tests
-examples/             # sample payloads & prometheus config
+examples/             # sample push payloads & prometheus config
 ```
 
 ## Notes & limitations
 
 - Metrics are held **in memory**; restarting the exporter resets them. Run a
-  single instance behind a stable address and rely on Prometheus for long-term
-  storage.
-- Only `pipeline` and `build` (job) events are processed; other event kinds are
-  acknowledged and counted as `ignored`.
+  single instance behind a stable address and rely on Prometheus for
+  long-term storage.
+- There is no metric expiry/TTL — pushed series remain until the process
+  restarts (unlike the official Pushgateway, which also has no TTL by
+  default).
 
 ## License
 

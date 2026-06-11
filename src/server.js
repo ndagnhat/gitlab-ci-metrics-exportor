@@ -1,10 +1,8 @@
 import crypto from 'node:crypto';
 import express from 'express';
-import { handlePipelineEvent } from './handlers/pipeline.js';
-import { handleJobEvent } from './handlers/job.js';
 
 /**
- * Constant-time string comparison to avoid leaking the secret via timing.
+ * Constant-time string comparison to avoid leaking the auth token via timing.
  */
 function safeEqual(a, b) {
   const ab = Buffer.from(String(a ?? ''));
@@ -13,11 +11,16 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(ab, bb);
 }
 
+function extractBearerToken(req) {
+  const header = req.get('Authorization') ?? '';
+  return header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+}
+
 /**
  * Builds the Express application. Kept separate from the listening logic so it
  * can be exercised directly in tests.
  */
-export function createApp({ config, metrics, logger }) {
+export function createApp({ config, metricsStore, logger }) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: config.bodyLimit }));
@@ -30,53 +33,48 @@ export function createApp({ config, metrics, logger }) {
   // Prometheus scrape endpoint.
   app.get(config.metricsPath, async (_req, res) => {
     try {
-      res.set('Content-Type', metrics.registry.contentType);
-      res.end(await metrics.registry.metrics());
+      res.set('Content-Type', metricsStore.registry.contentType);
+      res.end(await metricsStore.registry.metrics());
     } catch (err) {
       logger.error('failed to render metrics', { error: err.message });
       res.status(500).end();
     }
   });
 
-  // GitLab webhook receiver.
-  app.post(config.webhookPath, (req, res) => {
-    if (config.webhookSecret && !safeEqual(req.get('X-Gitlab-Token'), config.webhookSecret)) {
-      metrics.webhookEvents.inc({ event: 'unknown', result: 'rejected' });
-      logger.warn('rejected webhook with invalid token');
-      res.status(401).json({ error: 'invalid token' });
+  // Generic metric push endpoint. Accepts a single metric object, or a batch
+  // as either a JSON array or `{ "metrics": [...] }`.
+  app.post(config.metricsPath, (req, res) => {
+    if (config.authToken && !safeEqual(extractBearerToken(req), config.authToken)) {
+      logger.warn('rejected metric push with invalid token');
+      res.status(401).json({ error: 'invalid or missing token' });
       return;
     }
 
-    const kind = req.body?.object_kind ?? 'unknown';
-    const context = {
-      namespace: req.get(config.namespaceHeader),
-      service: req.get(config.serviceHeader),
-    };
+    const body = req.body;
+    let items;
+    if (Array.isArray(body)) items = body;
+    else if (body && Array.isArray(body.metrics)) items = body.metrics;
+    else items = [body];
 
-    try {
-      switch (kind) {
-        case 'pipeline': {
-          const info = handlePipelineEvent(req.body, metrics, context);
-          metrics.webhookEvents.inc({ event: kind, result: 'processed' });
-          logger.info('processed pipeline event', info);
-          break;
-        }
-        case 'build': {
-          const info = handleJobEvent(req.body, metrics, context);
-          metrics.webhookEvents.inc({ event: kind, result: 'processed' });
-          logger.info('processed job event', info);
-          break;
-        }
-        default:
-          metrics.webhookEvents.inc({ event: kind, result: 'ignored' });
-          logger.debug('ignored unsupported event', { kind });
-      }
-      res.status(202).json({ status: 'accepted', kind });
-    } catch (err) {
-      metrics.webhookEvents.inc({ event: kind, result: 'error' });
-      logger.error('failed to process webhook', { kind, error: err.message });
-      res.status(500).json({ error: 'processing failed' });
+    if (items.length === 0) {
+      res.status(400).json({ error: 'no metrics provided' });
+      return;
     }
+
+    let applied = 0;
+    for (const item of items) {
+      try {
+        const info = metricsStore.push(item ?? {});
+        logger.debug('pushed metric', info);
+        applied++;
+      } catch (err) {
+        logger.warn('rejected metric push', { error: err.message, index: applied });
+        res.status(400).json({ error: err.message, index: applied, applied });
+        return;
+      }
+    }
+
+    res.status(202).json({ status: 'accepted', count: applied });
   });
 
   return app;

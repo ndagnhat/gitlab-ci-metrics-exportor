@@ -6,21 +6,15 @@ export function loadConfig(env = process.env) {
   return {
     host: env.HOST ?? '0.0.0.0',
     port: Number.parseInt(env.PORT ?? '9252', 10),
-    // Path that exposes the Prometheus metrics.
+    // Path used for both scraping (GET) and pushing metrics (POST).
     metricsPath: env.METRICS_PATH ?? '/metrics',
-    // Path that receives GitLab webhook POST requests.
-    webhookPath: env.WEBHOOK_PATH ?? '/webhook',
-    // Secret token GitLab sends in the `X-Gitlab-Token` header.
-    // When empty, token validation is disabled (not recommended in production).
-    webhookSecret: env.GITLAB_WEBHOOK_SECRET ?? '',
-    // Maximum accepted webhook body size.
-    bodyLimit: env.BODY_LIMIT ?? '5mb',
-    // Custom HTTP headers configured on the GitLab webhook used to label
-    // pipeline metrics (e.g. "Namespace: platform", "Service: checkout").
-    namespaceHeader: env.NAMESPACE_HEADER ?? 'X-Namespace',
-    serviceHeader: env.SERVICE_HEADER ?? 'X-Service',
+    // Bearer token required on pushes via the `Authorization: Bearer <token>`
+    // header. When empty, push authentication is disabled.
+    authToken: env.PUSH_AUTH_TOKEN ?? '',
+    // Maximum accepted request body size.
+    bodyLimit: env.BODY_LIMIT ?? '1mb',
     logLevel: env.LOG_LEVEL ?? 'info',
-    // Whether to expose default Node.js process metrics alongside the GitLab ones.
+    // Whether to expose default Node.js process metrics alongside pushed metrics.
     defaultMetricsEnabled: (env.DEFAULT_METRICS ?? 'true') === 'true',
   };
 }

@@ -1,0 +1,12 @@
+{
+  "name": "gitlab_ci_pipeline_duration_seconds",
+  "type": "gauge",
+  "help": "Duration in seconds of the most recent pipeline",
+  "labels": {
+    "project": "group/app",
+    "ref": "main",
+    "env": "prod"
+  },
+  "value": 42,
+  "method": "set"
+}

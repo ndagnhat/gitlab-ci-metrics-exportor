@@ -5,7 +5,7 @@ services:
     ports:
       - "9252:9252"
     environment:
-      GITLAB_WEBHOOK_SECRET: ${GITLAB_WEBHOOK_SECRET:-change-me}
+      PUSH_AUTH_TOKEN: ${PUSH_AUTH_TOKEN:-change-me}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     restart: unless-stopped
 
