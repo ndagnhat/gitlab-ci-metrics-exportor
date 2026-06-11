@@ -1,0 +1,119 @@
+# Default values for gitlab-ci-metrics-exporter.
+
+# This exporter keeps all pushed metrics in memory (optionally persisted to
+# a single PVC). It must NOT be scaled horizontally.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/ndagnhat/gitlab-ci-metrics-exportor
+  pullPolicy: IfNotPresent
+  # Defaults to .Chart.AppVersion if not set.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+# Left empty by default so OpenShift can assign an arbitrary UID/GID via its
+# restricted SCC. The image's /data directory is group-writable (group 0)
+# to support this.
+podSecurityContext: {}
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 9252
+
+# OpenShift Route (route.openshift.io/v1). Ignored on plain Kubernetes
+# unless the Route CRD is installed.
+route:
+  enabled: false
+  host: ""
+  annotations: {}
+  tls:
+    enabled: true
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  tls: []
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Application configuration, mapped to environment variables documented in
+# the chart's parent project README.
+config:
+  metricsPath: /metrics
+  bodyLimit: 1mb
+  logLevel: info
+  defaultMetrics: true
+  persistenceIntervalMs: 30000
+
+# Bearer token required on POST /metrics pushes.
+auth:
+  # If set, a Secret is created by this chart to hold the token.
+  pushAuthToken: ""
+  # Reference an existing Secret instead of creating one. When set,
+  # auth.pushAuthToken is ignored.
+  existingSecret: ""
+  existingSecretKey: PUSH_AUTH_TOKEN
+
+# Persist pushed metrics across restarts via a PVC mounted at /data.
+persistence:
+  enabled: false
+  # Use an existing PVC instead of creating one.
+  existingClaim: ""
+  storageClassName: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  mountPath: /data
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 15
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 2
+  periodSeconds: 10
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Prometheus Operator ServiceMonitor (requires monitoring.coreos.com/v1 CRDs,
+# available by default on OpenShift via cluster/user workload monitoring).
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: ""
+  labels: {}
