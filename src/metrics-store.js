@@ -1,4 +1,5 @@
 import { Registry, Gauge, Counter, Histogram, collectDefaultMetrics } from 'prom-client';
+import { hashObject } from 'prom-client/lib/util.js';
 
 const TYPES = { gauge: Gauge, counter: Counter, histogram: Histogram };
 
@@ -105,7 +106,74 @@ export function createMetricsStore({ defaultMetricsEnabled = true } = {}) {
     return { name, type: entry.type, method: method ?? defaultMethod(entry.type), labels, value: numericValue };
   }
 
-  return { registry, push };
+  /**
+   * Serializes all pushed (non-default) collectors and their current values
+   * into a plain JSON-serializable object, suitable for persisting to disk.
+   */
+  function exportState() {
+    const metrics = [];
+    for (const [name, entry] of collectors) {
+      const { collector, type } = entry;
+      const metric = {
+        name,
+        type,
+        help: collector.help,
+        labelNames: collector.labelNames,
+      };
+      if (type === 'histogram') metric.buckets = collector.upperBounds;
+      metric.values = Object.values(collector.hashMap).map((v) =>
+        type === 'histogram'
+          ? { labels: v.labels, sum: v.sum, count: v.count, bucketValues: v.bucketValues }
+          : { labels: v.labels, value: v.value },
+      );
+      metrics.push(metric);
+    }
+    return { version: 1, savedAt: new Date().toISOString(), metrics };
+  }
+
+  /**
+   * Restores collectors and their values from a snapshot produced by
+   * `exportState`. Intended to be called once, before any pushes, to seed
+   * the registry after a restart. Metrics already registered are skipped.
+   */
+  function importState(state) {
+    for (const metric of state?.metrics ?? []) {
+      const { name, type, help, labelNames = [], buckets, values = [] } = metric;
+      if (collectors.has(name) || !TYPES[type]) continue;
+
+      const Ctor = TYPES[type];
+      const options = {
+        name,
+        help: help || `${name} (pushed metric)`,
+        labelNames,
+        registers: [registry],
+      };
+      if (type === 'histogram' && Array.isArray(buckets) && buckets.length > 0) {
+        options.buckets = buckets;
+      }
+
+      const collector = new Ctor(options);
+      const entry = { type, collector, labelNames: [...labelNames].sort() };
+      collectors.set(name, entry);
+
+      for (const v of values) {
+        const labels = v.labels ?? {};
+        const hash = hashObject(labels, collector.sortedLabelNames);
+        if (type === 'histogram') {
+          collector.hashMap[hash] = {
+            labels,
+            bucketValues: { ...collector.bucketValues, ...v.bucketValues },
+            sum: v.sum ?? 0,
+            count: v.count ?? 0,
+          };
+        } else {
+          collector.hashMap[hash] = { labels, value: v.value ?? 0 };
+        }
+      }
+    }
+  }
+
+  return { registry, push, exportState, importState };
 }
 
 function defaultMethod(type) {

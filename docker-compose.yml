@@ -7,6 +7,9 @@ services:
     environment:
       PUSH_AUTH_TOKEN: ${PUSH_AUTH_TOKEN:-change-me}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      PERSISTENCE_PATH: /data/state.json
+    volumes:
+      - exporter-data:/data
     restart: unless-stopped
 
   # Optional: a local Prometheus pre-configured to scrape the exporter.
@@ -19,3 +22,6 @@ services:
     depends_on:
       - exporter
     restart: unless-stopped
+
+volumes:
+  exporter-data:

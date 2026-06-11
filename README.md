@@ -77,6 +77,30 @@ All configuration is via environment variables (see `.env.example`):
 | `BODY_LIMIT`      | `1mb`      | Max request body size                                         |
 | `LOG_LEVEL`       | `info`     | `error` \| `warn` \| `info` \| `debug`                        |
 | `DEFAULT_METRICS` | `true`     | Also expose default Node.js process metrics                   |
+| `PERSISTENCE_PATH` | _(empty)_ | File path to persist/restore pushed metrics across restarts. Empty disables persistence |
+| `PERSISTENCE_INTERVAL_MS` | `30000` | How often to write the metrics snapshot to `PERSISTENCE_PATH` |
+
+## Persistence
+
+By default, all metrics are kept **in memory only** and are lost when the
+process restarts. To survive restarts (e.g. a pod restart in Kubernetes),
+set `PERSISTENCE_PATH` to a file on a persistent volume:
+
+```bash
+PERSISTENCE_PATH=/data/state.json PUSH_AUTH_TOKEN=mysecret npm start
+```
+
+The exporter will:
+
+- load the snapshot at startup (if the file exists) and restore all gauge,
+  counter and histogram values, including counter totals so they keep
+  accumulating correctly;
+- write a snapshot every `PERSISTENCE_INTERVAL_MS` (default 30s);
+- write a final snapshot on graceful shutdown (`SIGTERM`/`SIGINT`).
+
+In Kubernetes, mount a PVC at the directory containing `PERSISTENCE_PATH`
+(e.g. `/data`) so the snapshot survives pod restarts. This still requires a
+**single replica/pod** — see "Notes & limitations" below.
 
 ## Pushing metrics
 
@@ -184,6 +208,7 @@ src/
   config.js           # env-based configuration
   logger.js           # JSON line logger
   metrics-store.js     # dynamic prom-client registry (gauge/counter/histogram)
+  persistence.js       # optional snapshot save/restore for PERSISTENCE_PATH
   server.js           # Express app: /metrics (GET+POST), /health
 test/                 # unit + integration tests
 examples/             # sample push payloads & prometheus config
@@ -191,12 +216,15 @@ examples/             # sample push payloads & prometheus config
 
 ## Notes & limitations
 
-- Metrics are held **in memory**; restarting the exporter resets them. Run a
-  single instance behind a stable address and rely on Prometheus for
-  long-term storage.
+- Metrics are held **in memory**; restarting the exporter resets them unless
+  `PERSISTENCE_PATH` is set (see "Persistence" above). Run a single instance
+  behind a stable address and rely on Prometheus for long-term storage.
 - There is no metric expiry/TTL — pushed series remain until the process
   restarts (unlike the official Pushgateway, which also has no TTL by
   default).
+- Persistence is a periodic/best-effort snapshot, not a transaction log: any
+  pushes received between the last snapshot and an unclean shutdown (e.g.
+  `SIGKILL`) are lost.
 
 ## License
 
